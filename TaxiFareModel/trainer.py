@@ -1,18 +1,25 @@
-from sklearn import utils
 from TaxiFareModel.encoder import DistanceTransformer, TimeFeaturesEncoder
 from TaxiFareModel.utils import compute_rmse
 from TaxiFareModel.collect import get_data, clean_data
 
+import numpy as np
+
 from memoized_property import memoized_property
 import mlflow
 from mlflow.tracking import MlflowClient
+
 from sklearn.pipeline import make_pipeline
 from sklearn.compose import make_column_transformer
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
+#from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import make_scorer
 
+import joblib
 
 MLFLOW_URI = "https://mlflow.lewagon.co/"
 EXPERIMENT_NAME = "[FRA [Paris] [fabienpardo] linear 2" 
@@ -41,10 +48,26 @@ class Trainer():
                                                remainder='drop')
         
         self.pipeline = make_pipeline(preproc_pipe,
-                                       LinearRegression())
+                                       GradientBoostingRegressor(alpha=0.6801648976143877, learning_rate=0.07759030694642681))
         
         return self
+    
+    def search(self):
+        
+        rmse = make_scorer(mean_squared_error, squared=False)
 
+        grid = {'gradientboostingregressor__alpha': np.random.uniform(.001,1,10),
+                'gradientboostingregressor__learning_rate': np.random.uniform(.001,1,10)}
+
+
+        search = GridSearchCV(self.pipeline, grid, 
+                                    scoring=rmse,
+                                    cv=5,
+                                    n_jobs=-1)
+        
+        search.fit(self.X, self.y)
+        return search.best_score_, search.best_params_
+    
     def run(self):
         """set and train the pipeline"""
         self.pipeline.fit(self.X, self.y)
@@ -56,8 +79,10 @@ class Trainer():
         y_pred = self.pipeline.predict(X_test)
         return compute_rmse(y_pred, y_test)
     
-    # def params(self):
-    #     return self.pipeline.get_params()
+    def save_model(self):
+        """ Save the trained model into a model.joblib file """
+        joblib.dump(self.pipeline, 'TaxiFarelinear.joblib')
+        return self
     
     @memoized_property
     def mlflow_client(self):
@@ -92,7 +117,10 @@ if __name__ == "__main__":
     train.set_pipeline()
     train.run()
     rmse = train.evaluate(X_val, y_val)
-    print(rmse)
 
     train.mlflow_log_param('model', 'linear')
     train.mlflow_log_metric('rmse', rmse)
+    
+    train.save_model()
+    
+    print(rmse)
